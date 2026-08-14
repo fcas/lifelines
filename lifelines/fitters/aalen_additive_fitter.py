@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 import warnings
-from datetime import datetime
+from datetime import datetime, UTC
 import time
 
 import numpy as np
 import pandas as pd
 from numpy.linalg import LinAlgError
-from scipy.integrate import trapz
+from scipy.integrate import trapezoid
 
 from lifelines.fitters import RegressionFitter
 from lifelines.utils.printer import Printer
@@ -153,7 +153,7 @@ class AalenAdditiveFitter(RegressionFitter):
             aaf.print_summary()
 
         """
-        self._time_fit_was_called = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + " UTC"
+        self._time_fit_was_called = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S") + " UTC"
 
         df = df.copy()
 
@@ -244,7 +244,7 @@ class AalenAdditiveFitter(RegressionFitter):
 
             hazards_[i, :] = v
 
-            variance_hazards_[i, :] = (V ** 2).sum(1)
+            variance_hazards_[i, :] = (V**2).sum(1)
 
             X[exits, :] = 0
 
@@ -396,7 +396,7 @@ It's important to know that the naive variance estimates of the coefficients are
         """
         index = _get_index(X)
         t = self._index
-        return pd.Series(trapz(self.predict_survival_function(X)[index].values.T, t), index=index)
+        return pd.Series(trapezoid(self.predict_survival_function(X)[index].values.T, t), index=index)
 
     def _compute_confidence_intervals(self):
         ci = 100 * (1 - self.alpha)
@@ -500,7 +500,7 @@ It's important to know that the naive variance estimates of the coefficients are
             # normally (weights * X).dot(Y) / X.dot(weights * X), but we have a slightly different form here.
             beta = X.dot(Y) / X.dot(weights * X)
             errors = Y.values - np.outer(X, beta)
-            var = (errors ** 2).sum(0) / (Y.shape[0] - 2) / X.dot(weights * X)
+            var = (errors**2).sum(0) / (Y.shape[0] - 2) / X.dot(weights * X)
             return beta, np.sqrt(var)
 
         weights = survival_table_from_events(self.durations, self.event_observed).loc[self._index, "at_risk"].values

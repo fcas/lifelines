@@ -11,7 +11,7 @@ import warnings
 from numpy import ndarray
 import numpy as np
 
-from scipy.integrate import quad, trapz
+from scipy.integrate import quad, trapezoid
 from scipy.linalg import solve
 from scipy import stats
 
@@ -266,7 +266,7 @@ def _expected_value_of_survival_up_to_t(model_or_survival_function, t: float = n
         )
         sf = model_or_survival_function.loc[:t]
         sf = pd.concat((sf, pd.DataFrame([1], index=[0], columns=sf.columns))).sort_index()
-        return trapz(y=sf.values[:, 0], x=sf.index)
+        return trapezoid(y=sf.values[:, 0], x=sf.index)
     elif isinstance(model_or_survival_function, lifelines.fitters.UnivariateFitter):
         # lifelines model
         model = model_or_survival_function
@@ -313,7 +313,7 @@ def _expected_value_of_survival_squared_up_to_t(
         sf = model_or_survival_function.loc[:t]
         sf = pd.concat((sf, pd.DataFrame([1], index=[0], columns=sf.columns))).sort_index()
         sf_tau = sf * sf.index.values[:, None]
-        return 2 * trapz(y=sf_tau.values[:, 0], x=sf_tau.index)
+        return 2 * trapezoid(y=sf_tau.values[:, 0], x=sf_tau.index)
     elif isinstance(model_or_survival_function, lifelines.fitters.UnivariateFitter):
         # lifelines model
         model = model_or_survival_function
@@ -556,7 +556,7 @@ def _group_event_table_by_intervals(event_table, intervals) -> pd.DataFrame:
 
         intervals = np.arange(0, event_max + bin_width, bin_width)
 
-    event_table = event_table.groupby(pd.cut(event_table["event_at"], intervals, include_lowest=True)).agg(
+    event_table = event_table.groupby(pd.cut(event_table["event_at"], intervals, include_lowest=True), observed=False).agg(
         {"removed": ["sum"], "observed": ["sum"], "censored": ["sum"], "at_risk": ["max"]}
     )
     # convert columns from multiindex
@@ -648,7 +648,7 @@ def datetimes_to_durations(
         the units of time to use.  See Pandas 'freq'. Default 'D' for days.
     dayfirst: bool, optional (default=False)
         see Pandas `to_datetime`
-    na_values : list, optional
+    na_values : list[str], optional
         list of values to recognize as NA/NaN. Ex: ['', 'NaT']
     format:
         see Pandas `to_datetime`
@@ -679,7 +679,7 @@ def datetimes_to_durations(
     start_times = pd.Series(start_times).copy()
     end_times = pd.Series(end_times).copy()
 
-    C = ~(pd.isnull(end_times).values | end_times.isin(na_values or [""]))
+    C = ~(pd.isnull(end_times).values | end_times.astype(str).isin(na_values or [""]))
     end_times[~C] = fill_date_
     start_times_ = pd.to_datetime(start_times, dayfirst=dayfirst, format=format)
     end_times_ = pd.to_datetime(end_times, dayfirst=dayfirst, errors="coerce", format=format)
@@ -1323,7 +1323,14 @@ def to_long_format(df, duration_col) -> pd.DataFrame:
     to_episodic_format
     add_covariate_to_timeline
     """
-    return df.assign(start=0, stop=lambda s: s[duration_col]).drop(duration_col, axis=1)
+    # Create a single copy to avoid modifying the original dataframe
+    long_form_df = df.copy()
+    
+    # pop() removes the column in-place and returns it, avoiding the need for .drop()
+    long_form_df['stop'] = long_form_df.pop(duration_col)
+    long_form_df['start'] = 0
+    
+    return long_form_df
 
 
 def add_covariate_to_timeline(
@@ -1464,7 +1471,7 @@ def add_covariate_to_timeline(
     cv = cv.sort_values([id_col, duration_col])
     cvs = cv.pipe(remove_redundant_rows).pipe(transform_cv_to_long_format).groupby(id_col, sort=True)
 
-    long_form_df = long_form_df.groupby(id_col, group_keys=False, sort=True).apply(expand, cvs=cvs)
+    long_form_df = long_form_df.groupby(id_col, group_keys=False, sort=True)[long_form_df.columns].apply(expand, cvs=cvs)
     return long_form_df.reset_index(drop=True)
 
 
@@ -1506,7 +1513,7 @@ def covariates_from_event_matrix(df, id_col) -> pd.DataFrame:
     """
     df = df.set_index(id_col)
     df = df.fillna(np.inf)
-    df = df.stack(dropna=False).reset_index()
+    df = df.stack(future_stack=True).reset_index()
     df.columns = [id_col, "event", "duration"]
     df["_counter"] = 1
     return (
@@ -1955,3 +1962,54 @@ class CovariateParameterMappings:
         design_info = formulaic.ModelSpec.from_spec(formulaic.Formula(formula).get_model_matrix(df))
 
         return design_info
+    
+class LinearAccumulator:
+    """
+    This class represents a linear function F(x), which can be updated iteratively.
+    """
+    def __init__(self):
+        """
+        Initializes F(x) as 0.
+        """
+        self.const_term: float = 0.0
+        self.linear_term: float = 0.0
+    
+    def add_linear_term(self, a: float, b: float) -> None:
+        """
+        Adds a * (x - b) to F(x).
+        """
+        self.const_term -= a * b
+        self.linear_term += a
+
+    def evaluate(self, x: float) -> float:
+        """
+        Evaluates F(x) at the given value of x.
+        """
+        return self.const_term + self.linear_term * x
+
+class QuadraticAccumulator:
+    """
+    This class represents a quadratic function F(x), which can be updated iteratively.
+    """
+    def __init__(self):
+        """
+        Initializes F(x) as 0.
+        """
+        self.const_term: float = 0.0
+        self.linear_term: float = 0.0
+        self.quadratic_term: float = 0.0
+    
+    def add_quadratic_term(self, a: float, b: float) -> None:
+        """
+        Adds a * (x - b)^2 to F(x).
+        """
+        # a * (x - b)^2 = a * x^2 + (- 2 * a * b) * x + a * b^2
+        self.const_term += a * (b ** 2)
+        self.linear_term -= 2 * a * b
+        self.quadratic_term += a
+
+    def evaluate(self, x: float) -> float:
+        """
+        Evaluates F(x) at the given value of x.
+        """
+        return self.const_term + self.linear_term * x + self.quadratic_term * (x ** 2)

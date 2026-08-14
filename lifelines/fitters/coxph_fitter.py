@@ -2,14 +2,14 @@
 from __future__ import annotations
 from typing import Callable, Iterator, List, Optional, Tuple, Union, Any, Iterable
 from textwrap import dedent, fill
-from datetime import datetime
+from datetime import datetime, UTC
 import warnings
 import time
 
 from numpy import dot, einsum, log, exp, zeros, arange, multiply, ndarray
 import numpy as np
 from scipy.linalg import solve as spsolve, LinAlgError, norm, inv
-from scipy.integrate import trapz
+from scipy.integrate import trapezoid
 from scipy import stats
 from pandas import DataFrame, Series, Index
 import pandas as pd
@@ -1214,7 +1214,7 @@ class SemiParametricPHFitter(ProportionalHazardMixin, SemiParametricRegressionFi
             cph.predict_median(df)
 
         """
-        self._time_fit_was_called = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") + " UTC"
+        self._time_fit_was_called = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S") + " UTC"
         self.duration_col = duration_col
         self.event_col = event_col
         self.robust = robust
@@ -2514,7 +2514,7 @@ See https://stats.stackexchange.com/q/11109/11867 for more.\n",
         """
         subjects = utils._get_index(X)
         v = self.predict_survival_function(X, conditional_after=conditional_after)[subjects]
-        return pd.Series(trapz(v.values.T, v.index), index=subjects)
+        return pd.Series(trapezoid(v.values.T, v.index), index=subjects)
 
     def _compute_baseline_hazard(self, partial_hazards: DataFrame, name: Any) -> pd.DataFrame:
         # https://stats.stackexchange.com/questions/46532/cox-baseline-hazard
@@ -2693,9 +2693,13 @@ See https://stats.stackexchange.com/q/11109/11867 for more.\n",
         if self.strata:
             df = df.set_index(self.strata)
 
-        df = df.sort_values([self.duration_col, self.event_col])
+        df = df.sort_values([col for col in [self.duration_col, self.event_col] if (col is not None)])
         T = df.pop(self.duration_col).astype(float)
-        E = df.pop(self.event_col).astype(bool)
+        E = (
+            df.pop(self.event_col)
+            if (self.event_col is not None)
+            else pd.Series(np.ones(len(df.index)), index=df.index, name="E")
+        ).astype(bool)
         W = df.pop(self.weights_col) if self.weights_col else pd.Series(np.ones_like(E), index=T.index)
         entries = df.pop(self.entry_col) if self.entry_col else None
 
@@ -2991,7 +2995,11 @@ class ParametricSplinePHFitter(ParametricCoxModelFitter, SplineFitterMixin):
 
     @staticmethod
     def _strata_labeler(stratum, i):
-        return "s%s_phi%d_" % (stratum, i)
+        try:
+            return "s%s_phi%d_" % (tuple(str(s) for s in stratum), i)
+        except:
+            # singleton
+            return "s%s_phi%d_" % (stratum, i)
 
     @property
     def _fitted_parameter_names(self):
@@ -3112,7 +3120,11 @@ class ParametricPiecewiseBaselinePHFitter(ParametricCoxModelFitter, Proportional
 
     @staticmethod
     def _strata_labeler(stratum, i):
-        return "s%s_lambda%d_" % (stratum, i)
+        try:
+            return "s%s_lambda%d_" % (tuple(str(s) for s in stratum), i)
+        except:
+            # singleton
+            return "s%s_lambda%d_" % (stratum, i)
 
     @property
     def _fitted_parameter_names(self):
@@ -3223,7 +3235,7 @@ class ParametricPiecewiseBaselinePHFitter(ParametricCoxModelFitter, Proportional
 
             for stratum, stratified_X in df.groupby(self.strata):
                 log_lambdas_ = anp.array(
-                    [0] + [self.params_[self._strata_labeler(stratum, i)][0] for i in range(2, self.n_breakpoints + 2)]
+                    [0] + [self.params_.loc[self._strata_labeler(stratum, i)].iloc[0] for i in range(2, self.n_breakpoints + 2)]
                 )
                 lambdas_ = np.exp(log_lambdas_)
 
@@ -3237,7 +3249,9 @@ class ParametricPiecewiseBaselinePHFitter(ParametricCoxModelFitter, Proportional
             return cumulative_hazard
 
         else:
-            log_lambdas_ = np.array([0] + [self.params_[param][0] for param in self._fitted_parameter_names if param != "beta_"])
+            log_lambdas_ = np.array(
+                [0] + [self.params_.loc[param].iloc[0] for param in self._fitted_parameter_names if param != "beta_"]
+            )
             lambdas_ = np.exp(log_lambdas_)
 
             Xs = self.regressors.transform_df(df)

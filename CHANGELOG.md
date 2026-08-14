@@ -1,6 +1,31 @@
 ## Changelog
 
-#### 0.28.0 - 2023-01-03
+#### 0.30.3 - 2026-03-05
+ - Revoke the 0.30.2 release and republish as 0.30.3.
+ - Require Python >= 3.11 in package metadata.
+
+#### 0.30.2 - 2026-03-04
+ - Revoke the 0.30.1 release and republish as 0.30.2.
+ - Require Python >= 3.10 in package metadata.
+ - Update Python trove classifiers to `Python :: 3 :: Only` and add explicit support classifiers for Python 3.12, 3.13, and 3.14.
+
+#### 0.30.1 - 2026-02-04
+ - Optimize `AalenJohansenFitter` variance calculation using prefix-sum accumulators; add `LinearAccumulator`/`QuadraticAccumulator` utilities and tests.
+ - Fix `CoxPHFitter` handling when `event_col=None` (sorting and default event vector).
+ - Fix `add_at_risk_counts` for NumPy >= 2.4 scalar conversion; add regression test.
+ - Support Python 3.13 and 3.14.
+
+#### 0.30.0 - 2024-10-29
+ - update dependencies (numpy >= 1.14.0)
+ - fix for `decimal` kwarg not working in StatisticalResult
+
+
+#### 0.29.0 - 2024-06-25
+ - update dependencies (pandas >= 2.1)
+ - update dependencies (scipy >= 1.7)
+
+
+#### 0.28.0 - 2024-01-03
  - Fixes bins that are far into the future with using `survival_table_from_events`, see #1587
  - Removed `sklean_adaptor`. It was a terrible hack, and causing more confusion and support debt than I want. This cleans up our API and simplifies the library. ✨ There's no replacement, and I doubt I'll introduce one ✨
  - Fix pandas>=2.0 compatibility.

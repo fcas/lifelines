@@ -347,7 +347,7 @@ def test_survival_table_from_events_at_risk_column():
         1.0,
     ]
     df = utils.survival_table_from_events(df["T"], df["E"])
-    assert list(df["at_risk"][1:]) == expected  # skip the first event as that is the birth time, 0.
+    assert list(df["at_risk"].loc[1:]) == expected  # skip the first event as that is the birth time, 0.
 
 
 def test_survival_table_to_events_casts_to_float():
@@ -1016,3 +1016,43 @@ def test_safe_exp():
     assert grad(safe_exp)(4.0) == np.exp(4.0)
     assert grad(safe_exp)(MAX) == np.exp(MAX)
     assert grad(safe_exp)(MAX + 1) == np.exp(MAX)
+
+class TestAccumulators:
+    EPSILON = 1e-10
+    
+    @staticmethod
+    def _check_equality(a: float, b: float) -> None:
+        assert abs(a - b) < TestAccumulators.EPSILON
+
+    def test_linear_accumulator(self):
+        function = utils.LinearAccumulator()
+        TestAccumulators._check_equality(float(0), function.evaluate(0))
+        TestAccumulators._check_equality(float(0), function.evaluate(1))
+        function.add_linear_term(0, 1)
+        TestAccumulators._check_equality(float(0), function.evaluate(0))
+        TestAccumulators._check_equality(float(0), function.evaluate(1))
+        function.add_linear_term(1, -1)
+        TestAccumulators._check_equality(float(1), function.evaluate(0))
+        TestAccumulators._check_equality(float(2), function.evaluate(1))
+        function.add_linear_term(-1, 2)
+        TestAccumulators._check_equality(float(3), function.evaluate(0))
+        TestAccumulators._check_equality(float(3), function.evaluate(1))
+    
+    def test_quadratic_accumulator(self):
+        function = utils.QuadraticAccumulator()
+        TestAccumulators._check_equality(float(0), function.evaluate(0))
+        TestAccumulators._check_equality(float(0), function.evaluate(1))
+        TestAccumulators._check_equality(float(0), function.evaluate(2))
+        function.add_quadratic_term(0, 1)
+        TestAccumulators._check_equality(float(0), function.evaluate(0))
+        TestAccumulators._check_equality(float(0), function.evaluate(1))
+        TestAccumulators._check_equality(float(0), function.evaluate(2))
+        function.add_quadratic_term(1, 2)
+        TestAccumulators._check_equality(float(4), function.evaluate(0))
+        TestAccumulators._check_equality(float(1), function.evaluate(1))
+        TestAccumulators._check_equality(float(0), function.evaluate(2))
+        function.add_quadratic_term(-1, -1)
+        TestAccumulators._check_equality(float(3), function.evaluate(0))
+        TestAccumulators._check_equality(float(-3), function.evaluate(1))
+        TestAccumulators._check_equality(float(-9), function.evaluate(2))
+
